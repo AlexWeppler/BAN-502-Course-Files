@@ -1,0 +1,205 @@
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(e1071)
+library(ROCR)
+```
+
+```{r}
+parole = read.csv("parole.csv")
+```
+
+```{r}
+parole = parole %>% mutate(male = as.factor(male)) %>%
+  mutate(male = fct_recode(male, "male" = "1", "female" = "0"))
+```
+```{r}
+parole = parole %>% mutate(race = as.factor(race)) %>%
+  mutate(race = fct_recode(race, "white" = "1", "otherwise" = "2"))
+
+parole = parole %>% mutate(state = as.factor(state)) %>%
+  mutate(state = fct_recode(state, "Kentucky" = "2", "Louisiana" = "3", "Virginia" = "4", "Other" = "1"))
+
+parole = parole %>% mutate(crime = as.factor(crime)) %>%
+  mutate(crime = fct_recode(crime, "larceny" = "2", "drugs" = "3", "driving" = "4", "other" = "1"))
+
+parole = parole %>% mutate(multiple.offenses = as.factor(multiple.offenses)) %>%
+  mutate(multiple.offenses = fct_recode(multiple.offenses, "Yes" = "1", "No" = "0"))
+
+parole = parole %>% mutate(violator = as.factor(violator)) %>%
+  mutate(violator = fct_recode(violator, "Yes" = "1", "No" = "0"))
+
+```
+
+```{r}
+summary(parole)
+```
+Question 1 There are 675 parolees in the dataset. How many of these parolees ended up violating parole?
+HINT: Examine the response variable “violator”. 78
+
+Q2 - Rows in train - 471
+
+```{r}
+set.seed(12345) 
+parole_split = initial_split(parole, prop = .70, strata = violator)
+train = training(parole_split)
+test = testing(parole_split)
+```
+```{r}
+levels(train$violator)
+```
+```{r}
+train = train %>% mutate(violator = fct_relevel(violator, c("No","Yes"))) #reordering variable
+levels(train$violator)
+```
+```{r}
+ggplot(train,aes(x=male, color = violator)) + geom_bar()
+```
+
+True/False: The violation rate appears slightly higher among males than among females. FALSE
+
+Question 4: True/False: The violation rate is considerably higher in Louisiana than in the other states. True
+
+```{r}
+ggplot(train,aes(x=violator, y = max.sentence)) + geom_boxplot()
+```
+Question 5: True/False: The violation rate appears slightly higher among parolees with shorter
+“max_sentence” values. TRUE
+
+```{r}
+parole_model = 
+  logistic_reg() %>% #note the use of logistic_reg
+  set_engine("glm") #standard logistic regression engine is glm
+
+parole_recipe = recipe(violator ~ state, train) %>%
+  step_dummy(all_nominal(), -all_outcomes()) #exclude the response variable from being dummy converted  
+
+logreg_wf = workflow() %>%
+  add_recipe(parole_recipe) %>% 
+  add_model(parole_model)
+
+parole_fit = fit(logreg_wf, train)
+```
+
+```{r}
+summary(parole_fit$fit$fit$fit)
+```
+Question 6: Create a logistic regression model using the “state” variable to predict “violator”.
+Which state is the base level in the model summary? D. Other
+
+Question 7 To two decimal places, what is the AIC of the model with “state” to predict “violator”? 278.95
+
+```{r}
+parole_model = 
+  logistic_reg(mode = "classification") %>% #note the use of logistic_reg
+  set_engine("glm") #standard logistic regression engine is glm
+
+parole_recipe2 = recipe(violator ~ state + multiple.offenses + race, train) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>% #exclude the response variable from being dummy converted  
+step_center(all_predictors()) %>% #centers the predictors
+  step_scale(all_predictors()) #scales the predictors
+
+logreg_wf2 = workflow() %>%
+  add_recipe(parole_recipe2) %>% 
+  add_model(parole_model)
+
+parole_fit2 = fit(logreg_wf2, train)
+```
+
+```{r}
+summary(parole_fit2$fit$fit$fit)
+```
+
+Question 8 Create a logistic regression model using the training set to predict “violator” using the variables:
+“state”, “multiple.offenses”, and “race”. A. B.C.
+
+```{r}
+newdata = data.frame(state = "Louisiana", multiple.offenses = "Yes", race = "white")
+predict(parole_fit2, newdata, type = "prob")
+```
+Question 9: Use your model from Question 8 to determine the probability (to two decimal places) that the
+following parolee will violate parole: The parolee is in Louisiana, has multiple offenses, and is white. .33
+
+```{r}
+predictions = predict(parole_fit2, train, type="prob")[,2]
+head(predictions)
+
+predictions2 = predict(parole_fit2, test, type="prob")[,2]
+```
+
+```{r}
+ROCRpred = prediction(predictions, train$violator)
+
+###You shouldn't need to ever change the next two lines:
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+```
+
+Question 10: Continuing to use your model from Question 8, develop an ROC curve and determine the
+probability threshold that best balances specificity and sensitivity (on the training set). Be sure to be careful
+with the predict function syntax.
+What is the value of this threshold (to four decimal places)? ..2016
+
+```{r}
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+```{r}
+t1 = table(train$violator,predictions > 0.2015788)
+t1
+```
+```{r}
+(t1[1,1]+t1[2,2])/nrow(train)
+
+36/(36+18)
+
+```
+
+Question 11: Continuing to use your model from Question 8, what is the model’s accuracy (on the training
+set) given the cutoff from Question 10? Report the accuracy to three decimal places. HINT: Use the threshold
+value out to all of its reported decimal places to ensure that your answer matches the solution. .8408
+
+
+Question 12 Continuing to use the model from Question 8, what is the sensitivity of the model on the
+training set (to three decimal places)? .722
+
+```{r}
+t2 = table(train$violator,predictions > 0.2)
+t2
+(t2[1,1]+t2[2,2])/nrow(train)
+
+t3 = table(train$violator,predictions > 0.3)
+t3
+(t3[1,1]+t3[2,2])/nrow(train)
+
+t4 = table(train$violator,predictions > 0.4)
+t4
+(t4[1,1]+t4[2,2])/nrow(train)
+
+t5 = table(train$violator,predictions > 0.5)
+t2
+(t5[1,1]+t5[2,2])/nrow(train)
+```
+
+Question 13: For the model from Question 8, which probability threshold results in the best accuracy (on
+the training set)? D. 
+
+```{r}
+t5 = table(test$violator,predictions2 > 0.5)
+(t5[1,1]+t5[2,2])/nrow(test)
+```
+Question 14: Use your probability threshold from Question 13 to determine the accuracy of the model on
+the testing set (to three decimal places).
+0.8882

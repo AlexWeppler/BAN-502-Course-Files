@@ -1,0 +1,149 @@
+```{r}
+library(tidyverse) #tidyverse set of packages and functions
+library(tidymodels)
+library(glmnet) #for Lasso, ridge, and elastic net models 
+library(GGally) #create ggcorr and ggpairs plots
+library(ggcorrplot) #create an alternative to ggcorr plots
+library(MASS) #access to forward and backward selection algorithms
+library(leaps) #best subset selection
+library(lmtest) #for the dw test
+library(splines) #for nonlinear fitting
+library(lubridate)
+```
+ 
+```{r}
+bike = read.csv('bike_cleaned-3.csv')
+```
+```{r}
+bike = bike %>%mutate(dteday = mdy(dteday))
+```
+
+```{r}
+bike = bike %>% mutate_if(is.character, as_factor)
+```
+
+
+```{r}
+bike = bike %>% mutate(hr = as_factor(hr))
+```
+
+```{r}
+ggcorr(bike, label = "TRUE", label_round = 1)
+ggpairs(bike, columns = c("count", "windspeed", "hum","atemp","temp"))
+```
+
+Question 1 Which of the quantitative variables appears to be best correlated with “count”? NOTE: Ignore
+the “registered” and “casual” variable as the sum of these two variables equals “count”. Because these
+variables combine to make the response variable, they cannot be used as predictors. You can also ignore the
+“instant” variable as it is just a row number. A. Temp
+
+```{r}
+ggplot(bike, aes(x = season, y = count)) + geom_col()
+```
+Question 2 Which “season” appears to have the highest count of rides? C. Summer
+
+```{r}
+bike_recipe = recipe(count ~ hr, bike) %>%
+  step_dummy(hr)
+
+lm_model = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm") #specify the specify type of linear tool we want to use 
+
+lm_wflow = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(bike_recipe)
+
+lm_fit = fit(lm_wflow, bike)
+```
+
+
+```{r}
+summary(lm_fit$fit$fit$fit)
+```
+Question 3 Build a linear regression model (using tidymodels) with “hr” to predict “count”. You will use
+this model to answer the next several questions.
+How many dummy (indicator) variables are used to represent “hr” in the model? 24
+
+Question 4 In your model from Question 3, which hour is selected as the “base” level (category)? The base
+level does not have an associated coefficient (slope) in the linear regression model. 0
+
+```{r}
+ggplot(bike, aes(hr, count)) + geom_point()
+```
+```{r}
+Predictor = lm_fit%>%
+  extract_fit_parsnip() %>%
+  tidy()
+```
+
+Question 5 During which hour of the day does the model predict the highest number of rides? 17
+
+```{r}
+ggplot(bike, aes(temp, count)) + geom_point()
+```
+Question 6 Plot “temp” (x axis) versus “count” (y axis) using an appropriate plot type.
+Which statement best describes the general relationship between “temp” and “count”? A
+
+```{r}
+bike_recipe2 = recipe(count ~ hr + temp, bike)
+ 
+
+lm_model = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm") #specify the specify type of linear tool we want to use 
+
+lm_wflow2 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(bike_recipe2)
+
+lm_fit2 = fit(lm_wflow2, bike)
+
+summary(lm_fit2$fit$fit$fit)
+```
+Question 7 Create a linear regression model (using tidymodels) with “hr” and “temp” to predict “count”.
+You will use this model to answer the next several questions.
+What is the value of the slope coefficient for “hr23” in this model (to three decimal places)? 31.748 
+
+Q8. Adjusted R-squared:  0.5886 
+
+```{r}
+bike_recipe3 = recipe(count ~ atemp + temp, bike)
+ 
+
+lm_model = #give the model type a name 
+  linear_reg() %>% #specify that we are doing linear regression
+  set_engine("lm") #specify the specify type of linear tool we want to use 
+
+lm_wflow3 = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(bike_recipe3)
+
+lm_fit3 = fit(lm_wflow3, bike)
+
+summary(lm_fit3$fit$fit$fit)
+```
+
+Q9. Adjusted R-squared:  0.1638 
+
+Q10. TEMP Only
+
+Q11. D
+
+```{r}
+allmod = lm(count ~ season + mnth + hr + holiday + weekday + workingday + weathersit + temp + atemp + hum + windspeed, bike) #use the ~. to include all predictors rather than typing them all in
+summary(allmod)
+
+```
+
+```{r}
+backmod = stepAIC(allmod, direction = "backward", trace = TRUE)
+summary(backmod)
+```
+
+q12. B. Weekday + holiday
+
+q13. B. WorkingDay
